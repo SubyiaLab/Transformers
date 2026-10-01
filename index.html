@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Transformer Visualizer</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Transformer Visualizer</h1>
+      <p class="sub">A tiny GPT, trained live in your browser. Turn the knobs, watch the tokens, attention and predictions change.</p>
+    </div>
+    <button id="themeToggle" class="ghost" type="button" aria-label="Toggle dark mode">Theme</button>
+  </header>
+
+  <div class="layout">
+    <!-- ================= CONTROLS ================= -->
+    <aside class="controls" aria-label="Model knobs">
+      <section class="panel">
+        <h2>1 · Data &amp; tokenizer</h2>
+        <label>Training text
+          <select id="corpus"></select>
+        </label>
+        <label id="customWrap" hidden>Your text <span class="hint" id="customCount"></span>
+          <textarea id="customText" rows="6" maxlength="50000" spellcheck="false" placeholder="Paste at least a few hundred characters…"></textarea>
+        </label>
+        <label>Tokenizer
+          <select id="tokType">
+            <option value="char">Character</option>
+            <option value="bpe" selected>BPE (GPT-style subwords)</option>
+            <option value="word">Word</option>
+          </select>
+        </label>
+        <label id="vocabWrap">Vocab size <output id="vocabOut"></output>
+          <input type="range" id="vocab" min="32" max="1024" step="8" value="160">
+        </label>
+        <p class="note" data-rebuild>Changing anything here re-trains the tokenizer and resets the model.</p>
+      </section>
+
+      <section class="panel">
+        <h2>2 · Architecture</h2>
+        <label>Layers (n_layer) <output id="nLayerOut"></output>
+          <input type="range" id="nLayer" min="1" max="6" value="2">
+        </label>
+        <label>Embedding width (d_model) <output id="dModelOut"></output>
+          <input type="range" id="dModel" min="0" max="4" value="2" data-map="16,24,32,48,64">
+        </label>
+        <label>Attention heads (n_head) <output id="nHeadOut"></output>
+          <select id="nHead"></select>
+        </label>
+        <label>Context length (block_size) <output id="blockOut"></output>
+          <input type="range" id="blockSize" min="8" max="96" step="8" value="32">
+        </label>
+        <label>MLP expansion <output id="mlpOut"></output>
+          <input type="range" id="mlpRatio" min="1" max="4" value="4">
+        </label>
+        <label>Positional encoding
+          <select id="posEnc">
+            <option value="learned" selected>Learned (GPT-2)</option>
+            <option value="sinusoidal">Sinusoidal (original Transformer)</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="tie" checked> Tie input &amp; output embeddings</label>
+        <label>Init seed
+          <input type="number" id="seed" min="1" max="999999" value="1337">
+        </label>
+        <p class="note">Architecture changes rebuild the model with fresh random weights.</p>
+      </section>
+
+      <section class="panel">
+        <h2>3 · Training</h2>
+        <label>Learning rate <output id="lrOut"></output>
+          <input type="range" id="lr" min="-4" max="-1" step="0.1" value="-2.3">
+        </label>
+        <label>Batch size <output id="batchOut"></output>
+          <input type="range" id="batch" min="1" max="32" value="8">
+        </label>
+        <label class="check"><input type="checkbox" id="trainCausal" checked> Causal mask while training</label>
+        <div class="btnrow">
+          <button id="trainBtn" type="button" class="primary">Train</button>
+          <button id="resetBtn" type="button">Reset weights</button>
+        </div>
+        <p class="stat" id="trainStat">step 0</p>
+      </section>
+
+      <section class="panel">
+        <h2>4 · Inference <span class="tag">live</span></h2>
+        <label>Temperature <output id="tempOut"></output>
+          <input type="range" id="temp" min="0" max="2" step="0.05" value="0.8">
+        </label>
+        <label>Top-k <output id="topkOut"></output>
+          <input type="range" id="topk" min="0" max="50" value="0">
+        </label>
+        <label>Top-p (nucleus) <output id="toppOut"></output>
+          <input type="range" id="topp" min="0.05" max="1" step="0.05" value="1">
+        </label>
+        <label>Attention sharpness (× 1/√d<sub>head</sub>) <output id="ascaleOut"></output>
+          <input type="range" id="ascale" min="0" max="4" step="0.05" value="1">
+        </label>
+        <label class="check"><input type="checkbox" id="inferCausal" checked> Causal mask at inference</label>
+        <label>Tokens to generate <output id="genOut"></output>
+          <input type="range" id="genLen" min="10" max="300" step="10" value="120">
+        </label>
+      </section>
+    </aside>
+
+    <!-- ================= VIEWS ================= -->
+    <main class="views">
+      <div id="banner" class="banner" role="status" hidden></div>
+
+      <section class="card" id="archCard">
+        <div class="card-head">
+          <h2>Architecture</h2>
+          <p class="hint">Data flows left to right. Shapes are [tokens × width].</p>
+        </div>
+        <div id="pipeline" class="pipeline"></div>
+        <div class="grid2">
+          <div>
+            <h3>Parameters</h3>
+            <div id="paramBars" class="hbars"></div>
+          </div>
+          <div>
+            <h3>Model card</h3>
+            <dl id="modelCard" class="kv"></dl>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Tokenizer</h2>
+          <p class="hint">Hover a token for its id. Click one to see what it attends to.</p>
+        </div>
+        <label class="prompt">Prompt
+          <input id="prompt" type="text" maxlength="2000" spellcheck="false" value="When the column pressure rises, the operator">
+        </label>
+        <div id="tokens" class="tokens" aria-live="polite"></div>
+        <dl id="tokStats" class="kv inline"></dl>
+        <details id="mergesBox">
+          <summary>BPE merges (first 60, in the order they were learned)</summary>
+          <ol id="merges" class="merges"></ol>
+        </details>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Training</h2>
+          <p class="hint">Cross-entropy in nats. Dashed line = loss of uniform guessing, ln(vocab).</p>
+        </div>
+        <div class="chart-wrap"><canvas id="lossChart" height="220"></canvas><div class="tooltip" id="lossTip" hidden></div></div>
+        <div class="legend" id="lossLegend"></div>
+        <p class="note" id="lossNote" hidden></p>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Attention</h2>
+          <p class="hint">Row = query token (the one doing the looking), column = key token. Each row sums to 1.</p>
+        </div>
+        <div class="row">
+          <label>Layer <select id="layerSel"></select></label>
+          <label>Head <select id="headSel"></select></label>
+          <span class="spacer"></span>
+          <span class="scale-legend"><span>0</span><span class="ramp"></span><span>1</span><span class="masked-swatch"></span><span>masked</span></span>
+        </div>
+        <div class="attn-main">
+          <div class="chart-wrap heat-wrap"><canvas id="heatmap"></canvas><div class="tooltip" id="heatTip" hidden></div></div>
+          <div class="attn-side">
+            <h3>Head stats</h3>
+            <dl id="headStats" class="kv"></dl>
+            <p class="hint" id="headHint"></p>
+          </div>
+        </div>
+        <h3>All heads <span class="hint">(click to inspect)</span></h3>
+        <div id="allHeads" class="small-multiples"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Next-token prediction</h2>
+          <p class="hint">Top 15 candidates after temperature / top-k / top-p. Outline = raw model (T = 1).</p>
+        </div>
+        <div class="chart-wrap"><canvas id="probChart" height="300"></canvas><div class="tooltip" id="probTip" hidden></div></div>
+        <dl id="probStats" class="kv inline"></dl>
+        <div class="btnrow">
+          <button id="genBtn" type="button" class="primary">Generate</button>
+        </div>
+        <pre id="genOut2" class="gen" aria-live="polite"></pre>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Residual stream</h2>
+          <p class="hint">Mean vector length after each block for the prompt — how much each layer writes.</p>
+        </div>
+        <div id="residBars" class="hbars"></div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="foot">
+    Runs fully offline. No data leaves your browser. Model is a from-scratch JavaScript GPT — small, so expect babble, not essays.
+  </footer>
+
+  <script src="js/tensor.js"></script>
+  <script src="js/tokenizer.js"></script>
+  <script src="js/model.js"></script>
+  <script src="js/corpora.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
