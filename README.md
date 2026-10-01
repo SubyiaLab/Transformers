@@ -45,11 +45,12 @@ npm test
 
 ## Suggested experiments (5 minutes each)
 
-1. **Watch structure appear.** Select *Patterns*, press Train, and watch the attention thumbnails go from grey mush to sharp diagonals (previous-token heads) within ~100 steps.
+1. **Watch it learn.** Select *Patterns* + *Character* tokenizer, press Train. Loss falls from ~3.3 to ~0.3 in about 200 steps and the attention thumbnails go from evenly spread to structured. (Don't expect textbook-clean heads — at this size they stay fuzzy.)
 2. **Tokenizer trade-off.** Same text with *Character* vs *BPE 512*. Character: tiny vocab, long sequences. BPE: fewer tokens, bigger embedding table.
-3. **Cheating without a mask.** Uncheck *Causal mask while training*, train. Loss drops to near 0 — then generate and see that the model learned nothing useful.
-4. **Temperature.** On a trained model, slide temperature 0 → 2 and read the entropy numbers.
-5. **Overfitting.** Train on *Refinery operations* for a few hundred steps: train loss goes under 1, validation loss climbs past the uniform baseline. That's what a 30k-parameter model does with 700 tokens.
+3. **Why the causal mask matters.** Train on *Patterns*, then uncheck *Causal mask at inference*. The model was trained never seeing the future; letting it see the future scrambles its internal state (measured: loss 0.13 → 2.5, near the 3.3 of random guessing).
+4. **Attention sharpness.** Slide it from 0× to 3×: every head goes from uniform averaging (~3.7 bits entropy) to near one-hot (~1.5 bits).
+5. **Temperature.** On a trained model, slide temperature 0 → 2 and read the entropy numbers and the generated text.
+6. **Overfitting.** Train on *Refinery operations* for a few hundred steps: train loss goes under 1, validation loss climbs past the uniform baseline and the page flags it. That's what a 30k-parameter model does with 700 tokens.
 
 ## Honest limits
 

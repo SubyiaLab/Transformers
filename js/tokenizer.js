@@ -17,7 +17,7 @@
 
   const UNK = '<unk>';
   // GPT-2 style pre-tokenizer: optional leading space + letters / digits / punctuation, or whitespace runs.
-  const PRETOKEN_RE = /\s?[A-Za-zÀ-ɏ]+|\s?\d+|\s?[^\sA-Za-zÀ-ɏ\d]+|\s+(?!\S)|\s+/g;
+  const PRETOKEN_RE = /\s?[A-Za-zÀ-ɏ]+|\s?\d+|\s?[^\sA-Za-zÀ-ɏ\d]+|\s+(?!\S)|\s+/gu;
 
   function pretokenize(text) {
     return text.match(PRETOKEN_RE) || [];

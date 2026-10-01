@@ -11,7 +11,7 @@
   const state = {
     tokenizer: null, trainData: [], valData: [], model: null, optim: null,
     rng: T.makeRng(1), step: 0, history: { train: [], val: [] },
-    running: false, analysis: null, selLayer: 0, selHead: 0, selQuery: null,
+    running: false, loopId: 0, analysis: null, selLayer: 0, selHead: 0, selQuery: null,
     lastVizUpdate: 0, genToken: 0,
   };
 
@@ -126,6 +126,7 @@
       banner(`Invalid configuration: ${e.message}`, 0);
       return;
     }
+    cancelGeneration();
     state.optim = new M.Adam(state.model.parameterList(), { lr: k.lr });
     state.rng = T.makeRng(k.seed + 1);
     state.step = 0;
@@ -145,15 +146,16 @@
     if (state.running) return;
     state.running = true;
     $('trainBtn').textContent = 'Pause';
-    requestAnimationFrame(trainLoop);
+    const id = ++state.loopId;
+    requestAnimationFrame(() => trainLoop(id));
   }
   function stopTraining() {
     state.running = false;
     $('trainBtn').textContent = 'Train';
   }
 
-  function trainLoop() {
-    if (!state.running) return;
+  function trainLoop(id) {
+    if (!state.running || id !== state.loopId) return; // paused, or superseded by a newer loop
     const k = knobs();
     state.optim.lr = k.lr;
     const t0 = performance.now();
@@ -180,7 +182,7 @@
     renderLoss();
     const now = performance.now();
     if (now - state.lastVizUpdate > 400) { state.lastVizUpdate = now; analyze(); }
-    requestAnimationFrame(trainLoop);
+    requestAnimationFrame(() => trainLoop(id));
   }
 
   // ---------------------------------------------------------------- analysis
@@ -455,9 +457,14 @@
   }
 
   // ---------------------------------------------------------------- generation
+  function cancelGeneration() {
+    state.genToken++;
+    $('genBtn').disabled = false;
+  }
+
   function generate() {
     const k = knobs();
-    const tok = state.tokenizer;
+    const tok = state.tokenizer, model = state.model;
     const promptIds = tok.encode($('prompt').value);
     if (!promptIds.length) { banner('Type a prompt first.'); return; }
     const out = $('genOut2');
@@ -469,13 +476,18 @@
     let produced = 0;
     $('genBtn').disabled = true;
     const tick = () => {
-      if (myToken !== state.genToken) return; // superseded
+      if (myToken !== state.genToken) return; // superseded or model rebuilt
       const t0 = performance.now();
-      while (produced < k.genLen && performance.now() - t0 < 25) {
-        const { logits } = state.model.nextTokenDistribution(ids, { causal: k.inferCausal, attnScale: k.attnScale });
-        const next = M.sampleFrom(M.applySampling(logits, k), rng);
-        ids.push(next);
-        produced++;
+      try {
+        while (produced < k.genLen && performance.now() - t0 < 25) {
+          const { logits } = model.nextTokenDistribution(ids, { causal: k.inferCausal, attnScale: k.attnScale });
+          ids.push(M.sampleFrom(M.applySampling(logits, k), rng));
+          produced++;
+        }
+      } catch (e) {
+        banner(`Generation stopped: ${e.message}`);
+        $('genBtn').disabled = false;
+        return;
       }
       gen.textContent = tok.decode(ids.slice(promptIds.length));
       if (produced < k.genLen) requestAnimationFrame(tick);

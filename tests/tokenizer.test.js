@@ -40,3 +40,12 @@ test('rejects empty corpus / unknown type', () => {
   assert.throws(() => createTokenizer('char', ''));
   assert.throws(() => createTokenizer('nope', 'abc'));
 });
+
+test('non-ASCII text (accents, emoji, CJK) round-trips through every tokenizer', () => {
+  const text = 'Café déjà vu 🔥🔥 naïve 東京 flare 🔥 test, café!';
+  for (const type of ['char', 'word', 'bpe']) {
+    const tok = createTokenizer(type, text, 200);
+    assert.equal(tok.decode(tok.encode(text)), text, type);
+  }
+  assert.equal(pretokenize(text).join(''), text);
+});
